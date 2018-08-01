@@ -1,0 +1,314 @@
+﻿<%--
+	Author: 
+		fangming
+	
+	Description:
+		DBSnaptshot will create a file for every database object 
+		and if configured will attempt to script your database.
+	Remarks:
+		tested with Microsoft SQL Server,mysql5.7
+--%>
+<%@ CodeTemplate Language="C#" TargetLanguage="TEXT" Debug="True" %>
+<%@ Property Name="SourceDatabase" Type="SchemaExplorer.DatabaseSchema" Category="1. Context" Description="Database that the documentation should be based on." %>
+<%@ Property Name="ScriptTableData" Type="System.Boolean" Default="True" Category="2. Output" Description="If true and the Extended Property Named 'ScriptTableData' equals 'True', the data in the table will be scripted out" %>
+<%@ Property Name="CleanDirectories" Type="System.Boolean" Default="False" Category="2. Output" Description="If true, the existing folders will be completely purged before scripting.  If false, the existing files will be overwritten as they are scripted.  Any extra files will remain." %>
+<%@ Property Name="OutputDirectory" Type="System.String" Default="../"%>
+
+<%@ Property Name="AuthorName" Type="System.String" Default="fangming"%>
+
+<%@ Property Name="DatabaseType" Type="System.String" Category="3. Model" Default="mysql" Description="mysql,oracle,sqlserver"%>
+<%@ Property Name="ContainsJSONAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="ContainsMapAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="IsLogicalDelete" Type="System.Boolean" Default="True" Category="3. Model"%>
+<%@ Property Name="ContainsNameInMethod" Type="System.Boolean" Default="True" Category="3. Model"%>
+<%@ Property Name="BasePackageName" Type="System.String" Category="3. Model" Default="com.fsmflying"%>
+<%@ Property Name="TableNames" Type="System.String" Category="3. Model" Default="im_user,im_group,im_group_member"%>
+<%@ Property Name="ModelNames" Type="System.String" Category="3. Model" Default="ImUserModel,ImGroupModel,ImGroupMemberModel"%>
+
+<%@ Assembly Name="SchemaExplorer" %>
+<%@ Assembly Name="System.Design" %>
+<%@ Import NameSpace="System.IO" %>
+<%@ Import NameSpace="System.Text" %>
+
+<script runat="template">
+// Override the Render method and have it output the sub-templates to file.
+public override void Render(TextWriter writer)
+{
+    string DATABASEPATH = "";
+    string PROCSPATH = "";
+    string TABLESPATH = "";
+    string VIEWSPATH = "";
+    string UDFPATH = "";
+    
+    string[] tableNames = new string[]{
+        "im_user","im_group","im_group_member"
+    };
+    string[] modelNames = new string[]{
+        "ImUserModel","ImGroupModel","ImGroupMemberModel"
+    };
+    
+    bool containsTable = false;
+    string modelName = null;
+    
+    //writer.WriteLine(this.SourceDatabase.);
+    
+	//writer.WriteLine(this.OutputDirectory);
+    for(int i=0;i<this.SourceDatabase.Database.Tables.Count;i++){
+        
+        for(int k=0;k<tableNames.Length;k++){
+            if(tableNames[k].ToLower().Equals(this.SourceDatabase.Database.Tables[i].Name.ToLower())){
+              containsTable = true;
+              modelName = modelNames[k];
+              continue;
+            }
+        }
+        if(!containsTable){
+            continue;
+        }
+        containsTable = false;
+        
+        string partOfModelNameInMethodName = "";
+        if(this.ContainsNameInMethod){
+            partOfModelNameInMethodName = modelName.Replace("Model","");
+        }
+        
+        
+        writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
+        writer.WriteLine("<!DOCTYPE mapper");
+        writer.WriteLine("        PUBLIC \"-//mybatis.org//DTD Mapper 3.0//EN\"");
+        writer.WriteLine("        \"http://mybatis.org/dtd/mybatis-3-mapper.dtd\">");
+        writer.WriteLine("<mapper namespace=\""+this.BasePackageName+".dao.I"+modelName.Replace("Model","")+"DAO\">");
+        writer.WriteLine("");
+        
+        //insert
+        writer.WriteLine("    <insert id=\"insert" + partOfModelNameInMethodName + "\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" keyProperty=\"id\" useGeneratedKeys=\"true\">");
+        StringBuilder sb = new StringBuilder();
+        StringBuilder sbp = new StringBuilder();
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            if(sb.Length>0){
+                sb.Append(",");
+                sbp.Append(",");
+            }
+            sb.Append(GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name));
+            sbp.Append("#{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"}");
+        }
+        writer.WriteLine("      INSERT INTO "+this.SourceDatabase.Database.Tables[i].Name);
+        writer.WriteLine("        ("+sb.ToString()+")");
+        writer.WriteLine("      VALUES ");
+        writer.WriteLine("        ("+sbp.ToString()+")");
+        writer.WriteLine("    </insert>");
+        
+        //update
+        writer.WriteLine();
+        writer.WriteLine("    <update id=\"update" + partOfModelNameInMethodName + "\" parameterType=\""+this.BasePackageName+".model."+modelName+"\">");
+        writer.WriteLine("      UPDATE "+this.SourceDatabase.Database.Tables[i].Name);
+        writer.WriteLine("      <set> ");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("          <if test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("              "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("          </if> ");
+        }
+        writer.WriteLine("      </set> ");
+        writer.WriteLine("      <where>");
+        writer.WriteLine("          <choose>");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("              <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("                  AND "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("              </when> ");
+        }
+        writer.WriteLine("              <otherwise> ");
+        writer.WriteLine("                  AND 1 != 1");
+        writer.WriteLine("              </otherwise> ");
+        writer.WriteLine("          </choose>");
+        writer.WriteLine("      </where>");
+        writer.WriteLine("    </update>");
+        
+        //delete
+        writer.WriteLine();
+        writer.WriteLine("    <delete id=\"delete" + partOfModelNameInMethodName +"\" parameterType=\""+this.BasePackageName+".model."+modelName+"\">");
+        if(this.IsLogicalDelete){
+            writer.WriteLine("        UPDATE "+this.SourceDatabase.Database.Tables[i].Name);
+            writer.WriteLine("        <set> ");
+            if("mysql".Equals(this.DatabaseType)){
+              writer.WriteLine("            delete_time = NOW() ");  
+            }
+            else if("sqlserver".Equals(this.DatabaseType)){
+              writer.WriteLine("            delete_time = GETDATE() ");   
+            }
+            else if("oracle".Equals(this.DatabaseType)){
+              writer.WriteLine("            delete_time = SYSDATE ");   
+            }
+            else {
+              writer.WriteLine("            delete_time = GETDATE() ");  
+            }
+            writer.WriteLine("        </set> ");
+        }
+        else{
+            writer.WriteLine("        DELETE "+this.SourceDatabase.Database.Tables[i].Name);
+        }
+        writer.WriteLine("        <where>");
+        writer.WriteLine("            <choose>");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("                <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("                    AND "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("                </when> ");
+        }
+        writer.WriteLine("                <otherwise> ");
+        writer.WriteLine("                    AND 1 != 1");
+        writer.WriteLine("                </otherwise> ");
+        writer.WriteLine("            </choose>");
+        writer.WriteLine("        </where>");
+        writer.WriteLine("    </delete>");
+        
+        //selectForList
+        writer.WriteLine();
+        writer.WriteLine("    <select id=\"select" + partOfModelNameInMethodName +"ForList\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" resultMap=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\">");
+        writer.Write("        SELECT ");
+        if("sqlserver".Equals(this.DatabaseType)){
+            writer.Write(" top #{pageSize}");   
+        }
+        writer.WriteLine(" inner.*");
+        writer.WriteLine("        FROM (");  
+        writer.WriteLine("          SELECT Row_Number() OVER (ORDER BY id) rowNumber,");  
+        writer.WriteLine("              <include refid=\"" + modelName.Replace("Model","") + "Columns\"/>");
+        writer.WriteLine("          FROM "+this.SourceDatabase.Database.Tables[i].Name);
+        writer.WriteLine("          <where>");
+        writer.WriteLine("              <choose>");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("                  <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("                      AND "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("                  </when> ");
+        }
+        writer.WriteLine("                  <otherwise> ");
+        writer.WriteLine("                      AND 1 != 1");
+        writer.WriteLine("                  </otherwise> ");
+        writer.WriteLine("              </choose>");
+        writer.WriteLine("          </where>");
+        writer.WriteLine("        ) inner");
+        writer.WriteLine("        <where>");
+        if("sqlserver".Equals(this.DatabaseType)){
+            writer.WriteLine("            rowNumber <= #{pageSize * (pageIndex -1)}");
+        }
+        else if("mysql".Equals(this.DatabaseType)){
+            writer.WriteLine("            limit #{pageSize * (pageIndex -1)},#{pageSize}");   
+        }
+        writer.WriteLine("        </where>");
+        writer.WriteLine("    </select>");
+        
+        //selectForModel
+        writer.WriteLine();
+        writer.WriteLine("    <select id=\"select" + partOfModelNameInMethodName +"ForModel\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" resultMap=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\">");
+        writer.WriteLine("        SELECT <include refid=\"" + ToFirstCharCase(modelName.Replace("Model",""),true) + "Columns\"/>");
+        writer.WriteLine("        FROM "+this.SourceDatabase.Database.Tables[i].Name);
+        writer.WriteLine("        <where>");
+        writer.WriteLine("            <choose>");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("                <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("                    AND "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("                </when> ");
+        }
+        writer.WriteLine("                <otherwise> ");
+        writer.WriteLine("                    AND 1 != 1");
+        writer.WriteLine("                </otherwise> ");
+        writer.WriteLine("            </choose>");
+        writer.WriteLine("        </where>");
+        writer.WriteLine("    </select>");
+        
+        //sql columns
+        writer.WriteLine();
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(sb.Length>0){
+                sb.Append(",");
+            }
+            sb.Append(GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name));
+        }
+        writer.WriteLine("    <sql id=\"" + ToFirstCharCase(modelName.Replace("Model",""),true) + "Columns\">");
+        writer.WriteLine("        "+sb.ToString());
+        writer.WriteLine("    </sql>");
+        
+        //resultMap
+        sb.Clear();
+        writer.WriteLine();
+        writer.WriteLine("    <resultMap id=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\" type=\""+this.BasePackageName+".model."+modelName+"\">");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                writer.WriteLine("         <result column=\""+this.SourceDatabase.Database.Tables[i].Columns[j].Name+"\" property=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"\"/>");
+            }
+            else{
+                writer.WriteLine("         <id column=\""+this.SourceDatabase.Database.Tables[i].Columns[j].Name+"\" property=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"\"/>");
+            }
+        }
+        writer.WriteLine("    </resultMap>");
+        
+        writer.WriteLine();
+        writer.WriteLine("</mapper>");
+        
+        
+    }
+    
+	
+    this.Progress.Value = this.Progress.MaximumValue;
+    
+    base.Render(writer);
+}
+
+private string ToFirstCharCase(string name,bool firstCharLowerCase){
+    return (firstCharLowerCase?name.Substring(0,1).ToLower():name.Substring(0,1).ToUpper())
+            +(name.Length>1?name.Substring(1):"");
+}
+
+private string GetPropertyName(string dbColumnName){
+    
+    StringBuilder sb = new StringBuilder();
+    string[] dbColumnPartNames = dbColumnName.Split('_');
+    for(int i=0;i<dbColumnPartNames.Length;i++){
+        sb.Append(ToFirstCharCase(dbColumnPartNames[i],false));
+    }
+    return ToFirstCharCase(sb.ToString(),true); 
+}
+
+private string GetLanguageTypeName(string dataType){
+    return getJavaType(dataType);
+}
+
+private string getJavaType(string dataType){
+    if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int".Equals(dataType)){
+        return "Integer";
+    }
+    else if("DateTime".Equals(dataType)){
+        return "Date";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    return "String";
+}
+
+</script>

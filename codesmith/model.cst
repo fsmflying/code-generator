@@ -1,0 +1,187 @@
+﻿<%--
+	Author: 
+		fangming
+	
+	Description:
+		DBSnaptshot will create a file for every database object 
+		and if configured will attempt to script your database.
+	Remarks:
+		tested with Microsoft SQL Server,mysql5.7
+--%>
+<%@ CodeTemplate Language="C#" TargetLanguage="TEXT" Debug="True" %>
+<%@ Property Name="SourceDatabase" Type="SchemaExplorer.DatabaseSchema" Category="1. Context" Description="Database that the documentation should be based on." %>
+<%@ Property Name="ScriptTableData" Type="System.Boolean" Default="True" Category="2. Output" Description="If true and the Extended Property Named 'ScriptTableData' equals 'True', the data in the table will be scripted out" %>
+<%@ Property Name="CleanDirectories" Type="System.Boolean" Default="False" Category="2. Output" Description="If true, the existing folders will be completely purged before scripting.  If false, the existing files will be overwritten as they are scripted.  Any extra files will remain." %>
+<%@ Property Name="OutputDirectory" Type="System.String" Default="../"%>
+
+<%@ Property Name="AuthorName" Type="System.String" Default="fangming"%>
+
+<%@ Property Name="ContainsJSONAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="ContainsMapAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="BasePackageName" Type="System.String" Category="3. Model" Default="com.fsmflying"%>
+<%@ Property Name="TableNames" Type="System.String" Category="3. Model" Default="im_user,im_group,im_group_member"%>
+<%@ Property Name="ModelNames" Type="System.String" Category="3. Model" Default="ImUserModel,ImGroupModel,ImGroupMemberModel"%>
+
+<%@ Assembly Name="SchemaExplorer" %>
+<%@ Assembly Name="System.Design" %>
+<%@ Import NameSpace="System.IO" %>
+<%@ Import NameSpace="System.Text" %>
+
+<script runat="template">
+// Override the Render method and have it output the sub-templates to file.
+public override void Render(TextWriter writer)
+{
+    string DATABASEPATH = "";
+    string PROCSPATH = "";
+    string TABLESPATH = "";
+    string VIEWSPATH = "";
+    string UDFPATH = "";
+    
+    string[] tableNames = new string[]{
+        "im_user","im_group","im_group_member"
+    };
+    string[] modelNames = new string[]{
+        "ImUserModel","ImGroupModel","ImGroupMemberModel"
+    };
+    
+    bool containsTable = false;
+    string modelName = null;
+    
+	//writer.WriteLine(this.OutputDirectory);
+    for(int i=0;i<this.SourceDatabase.Database.Tables.Count;i++){
+	    //writer.WriteLine(this.SourceDatabase.Database.Tables[i]);
+        
+        for(int k=0;k<tableNames.Length;k++){
+            if(tableNames[k].ToLower().Equals(this.SourceDatabase.Database.Tables[i].Name.ToLower())){
+              containsTable = true;
+              modelName = modelNames[k];
+              continue;
+            }
+        }
+        if(!containsTable){
+            continue;
+        }
+        
+        containsTable = false;
+        writer.WriteLine("package "+this.BasePackageName+".model;");
+        
+        writer.WriteLine();
+        writer.WriteLine("import java.util.Date;");
+        writer.WriteLine("import lombok.Data;");
+        if(this.ContainsJSONAbout){
+            writer.WriteLine("import com.alibaba.fastjson.JSONObject;");
+        }
+        if(this.ContainsJSONAbout){
+            writer.WriteLine("import java.util.Map;");
+            writer.WriteLine("import java.util.HashMap;");
+        }
+        
+        writer.WriteLine();
+        writer.WriteLine("/**");
+        writer.WriteLine(" * "+this.SourceDatabase.Database.Tables[i].Description);
+        writer.WriteLine(" * @author "+this.AuthorName);
+        writer.WriteLine(" * @date "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        writer.WriteLine(" * @version 1.0.0");
+        writer.WriteLine(" * @since 1.0.0");
+        writer.WriteLine(" */");
+        writer.WriteLine("@Data");
+        writer.WriteLine("public class "+modelName+" {");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+        
+	        //writer.WriteLine(GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name));
+            writer.WriteLine("    /**");
+            writer.WriteLine("     *"+this.SourceDatabase.Database.Tables[i].Columns[j].Description);
+            writer.WriteLine("     */");
+            writer.WriteLine("    public "
+              + GetLanguageTypeName(this.SourceDatabase.Database.Tables[i].Columns[j].DataType.ToString())
+              + " "+ GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)
+              + ";"
+            );
+            
+	        //writer.WriteLine(this.SourceDatabase.Database.Tables[i].Columns[j].NativeType);
+            writer.WriteLine();
+            
+            
+        }
+        if(this.ContainsJSONAbout){
+            writer.WriteLine("    /**");
+            writer.WriteLine("     * 转化为json对象");
+            writer.WriteLine("     */");
+            writer.WriteLine("    public JSONObject toJSONObject(){");
+            writer.WriteLine("        JSONObject jsonObject = new JSONObject();");
+            for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+                
+                    writer.WriteLine("        jsonObject.put(\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"\","
+                      + GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+");");
+                
+            }
+            writer.WriteLine("        return jsonObject;");
+            writer.WriteLine("    }");
+        }
+        
+        if(this.ContainsMapAbout){
+            writer.WriteLine("    /**");
+            writer.WriteLine("     * 转化为map对象");
+            writer.WriteLine("     */");
+            writer.WriteLine("    public Map<String,Object> toMapObject(){");
+            writer.WriteLine("        Map<String,Object> map = new HashMap<>();");
+            for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+                
+                    writer.WriteLine("        map.put(\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"\","
+                      + GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+");");
+                
+            }
+            writer.WriteLine("        return map;");
+            writer.WriteLine("    }");
+        }
+        
+        writer.WriteLine("}");
+    }
+	
+    this.Progress.Value = this.Progress.MaximumValue;
+    
+    base.Render(writer);
+}
+
+private string ToFirstCharCase(string name,bool firstCharLowerCase){
+    return (firstCharLowerCase?name.Substring(0,1).ToLower():name.Substring(0,1).ToUpper())
+            +(name.Length>1?name.Substring(1):"");
+}
+
+private string GetPropertyName(string dbColumnName){
+    
+    StringBuilder sb = new StringBuilder();
+    string[] dbColumnPartNames = dbColumnName.Split('_');
+    for(int i=0;i<dbColumnPartNames.Length;i++){
+        sb.Append(ToFirstCharCase(dbColumnPartNames[i],false));
+    }
+    return ToFirstCharCase(sb.ToString(),true); 
+}
+
+private string GetLanguageTypeName(string dataType){
+    return getJavaType(dataType);
+}
+
+private string getJavaType(string dataType){
+    if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int".Equals(dataType)){
+        return "Integer";
+    }
+    else if("DateTime".Equals(dataType)){
+        return "Date";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    return "String";
+}
+
+</script>

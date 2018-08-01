@@ -1,0 +1,383 @@
+﻿<%--
+	Author: 
+		fangming
+	
+	Description:
+		DBSnaptshot will create a file for every database object 
+		and if configured will attempt to script your database.
+	Remarks:
+		tested with Microsoft SQL Server,mysql5.7
+--%>
+<%@ CodeTemplate Language="C#" TargetLanguage="TEXT" Debug="True" %>
+<%@ Property Name="SourceDatabase" Type="SchemaExplorer.DatabaseSchema" Category="1. Context" Description="Database that the documentation should be based on." %>
+<%@ Property Name="ScriptTableData" Type="System.Boolean" Default="True" Category="2. Output" Description="If true and the Extended Property Named 'ScriptTableData' equals 'True', the data in the table will be scripted out" %>
+<%@ Property Name="CleanDirectories" Type="System.Boolean" Default="False" Category="2. Output" Description="If true, the existing folders will be completely purged before scripting.  If false, the existing files will be overwritten as they are scripted.  Any extra files will remain." %>
+<%@ Property Name="OutputDirectory" Type="System.String" Default="../"%>
+
+<%@ Property Name="AuthorName" Type="System.String" Default="fangming"%>
+
+<%@ Property Name="DatabaseType" Type="System.String" Category="3. Model" Default="mysql" Description="mysql,oracle,sqlserver"%>
+<%@ Property Name="ContainsJSONAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInSelect" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInInsert" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInUpdate" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInDelete" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="ContainsMapAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="IsLogicalDelete" Type="System.Boolean" Default="True" Category="3. Model"%>
+<%@ Property Name="ContainsNameInMethod" Type="System.Boolean" Default="True" Category="3. Model"%>
+<%@ Property Name="BasePackageName" Type="System.String" Category="3. Model" Default="com.fsmflying"%>
+<%@ Property Name="TableNames" Type="System.String" Category="3. Model" Default="im_user,im_group,im_group_member"%>
+<%@ Property Name="ModelNames" Type="System.String" Category="3. Model" Default="ImUserModel,ImGroupModel,ImGroupMemberModel"%>
+
+<%@ Assembly Name="SchemaExplorer" %>
+<%@ Assembly Name="System.Design" %>
+<%@ Import NameSpace="System.IO" %>
+<%@ Import NameSpace="System.Text" %>
+
+<script runat="template">
+// Override the Render method and have it output the sub-templates to file.
+public override void Render(TextWriter writer)
+{
+    string DATABASEPATH = "";
+    string PROCSPATH = "";
+    string TABLESPATH = "";
+    string VIEWSPATH = "";
+    string UDFPATH = "";
+    
+    string[] tableNames = new string[]{
+        "im_user","im_group","im_group_member"
+    };
+    string[] modelNames = new string[]{
+        "ImUserModel","ImGroupModel","ImGroupMemberModel"
+    };
+    
+    bool containsTable = false;
+    string modelName = null;
+    
+    //writer.WriteLine(this.SourceDatabase.);
+    
+	//writer.WriteLine(this.OutputDirectory);
+    for(int i=0;i<this.SourceDatabase.Database.Tables.Count;i++){
+        
+        for(int k=0;k<tableNames.Length;k++){
+            if(tableNames[k].ToLower().Equals(this.SourceDatabase.Database.Tables[i].Name.ToLower())){
+              containsTable = true;
+              modelName = modelNames[k];
+              continue;
+            }
+        }
+        if(!containsTable){
+            continue;
+        }
+        containsTable = false;
+        
+        string partOfModelNameInMethodName = "";
+        if(this.ContainsNameInMethod){
+            partOfModelNameInMethodName = modelName.Replace("Model","");
+        }
+        
+        string pkColumnName = "";
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                pkColumnName = this.SourceDatabase.Database.Tables[i].Columns[j].Name;
+            }
+        }
+        string pkPropertyName = GetPropertyName(pkColumnName);
+        
+        string modelFullName = this.BasePackageName+".model."+modelName;
+        
+        
+        string parameterType=modelFullName;
+        string resultType="int";
+        string resultMapName=ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap";
+
+        string parameterSignature = modelName+" "+GetPropertyName(modelName);
+        
+        writer.WriteLine("package "+this.BasePackageName+".service;");
+        
+        writer.WriteLine("import "+this.BasePackageName+".model."+modelName+";");
+        writer.WriteLine("import com.fsmflying.springboot.quickstart01.util.ResultModel;");
+        writer.WriteLine("import org.springframework.beans.factory.annotation.Autowired;");
+        writer.WriteLine("import org.springframework.stereotype.Service;");
+        writer.WriteLine("import java.util.List;");
+        
+        writer.WriteLine();
+        writer.WriteLine("/**");
+        writer.WriteLine(" * "+this.SourceDatabase.Database.Tables[i].Description);
+        writer.WriteLine(" * @author "+this.AuthorName);
+        writer.WriteLine(" * @date "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        writer.WriteLine(" * @version 1.0.0");
+        writer.WriteLine(" * @since 1.0.0");
+        writer.WriteLine(" */");
+        writer.WriteLine("@Service");
+        writer.WriteLine("public interface I"+partOfModelNameInMethodName+"Service {");
+        
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInInsert){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 插入");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 插入的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<Integer> add"+partOfModelNameInMethodName+"(" + parameterSignature + ");");
+        
+        //update
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInUpdate){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 更新");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 更新的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<Integer> save"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInDelete){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //delete
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 删除");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 删除的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<Integer> delete"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInSelect){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //select for Model
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个实体");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<"+modelName+"> queryModelFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        //select for List
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个列表");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体列表");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<List<"+modelName+">> queryListFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        //select for Count
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询记录数量");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 记录数量");
+        writer.WriteLine("     */");
+        writer.WriteLine("    ResultModel<Integer> queryCountFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        
+        writer.WriteLine("}");
+        
+        
+        //  implements================================================================================================================
+        
+        string daoName = this.ToFirstCharCase(partOfModelNameInMethodName,true)+"DAO";
+        string callParameterName = this.ToFirstCharCase(modelName,true);
+        
+        writer.WriteLine("package "+this.BasePackageName+".service.impl;");
+        
+        writer.WriteLine("import "+this.BasePackageName+".model."+modelName+";");
+        writer.WriteLine("import com.fsmflying.springboot.quickstart01.util.ResultModel;");
+        writer.WriteLine("import org.springframework.beans.factory.annotation.Autowired;");
+        writer.WriteLine("import org.springframework.stereotype.Service;");
+        writer.WriteLine("import java.util.List;");
+        
+        
+        
+        writer.WriteLine();
+        writer.WriteLine("/**");
+        writer.WriteLine(" * "+this.SourceDatabase.Database.Tables[i].Description);
+        writer.WriteLine(" * @author "+this.AuthorName);
+        writer.WriteLine(" * @date "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        writer.WriteLine(" * @version 1.0.0");
+        writer.WriteLine(" * @since 1.0.0");
+        writer.WriteLine(" */");
+        writer.WriteLine("@Service");
+        writer.WriteLine("public class "+partOfModelNameInMethodName+"ServiceImpl implements I"+partOfModelNameInMethodName+"Service {");
+        
+        
+        writer.WriteLine("    @Autowired");
+        writer.WriteLine("    I"+partOfModelNameInMethodName+"DAO "+daoName+"DAO ");
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInInsert){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine();
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 插入");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 插入的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<Integer> add"+partOfModelNameInMethodName+"(" + parameterSignature + "){");
+        writer.WriteLine("        ResultModel<Integer> resultModel = new ResultModel<>();");
+        writer.WriteLine("        int affectRows = "+daoName+".insert"+partOfModelNameInMethodName+"("+callParameterName+");");
+        writer.WriteLine("        if (affectRows > 0 && "+callParameterName+".getId() != null) {");
+        writer.WriteLine("            resultModel.setSucceed("+callParameterName+".getId().intValue());");
+        writer.WriteLine("        }");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        //update
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInUpdate){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 更新");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 更新的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<Integer> save"+partOfModelNameInMethodName+"("+parameterSignature+"){");
+        writer.WriteLine("        ResultModel<Integer> resultModel = new ResultModel<>();");
+        writer.WriteLine("        int affectRows = "+daoName+".update"+partOfModelNameInMethodName+"("+callParameterName+");");
+        writer.WriteLine("        if (affectRows > 0 && "+callParameterName+".getId() != null) {");
+        writer.WriteLine("            resultModel.setSucceed("+callParameterName+".getId().intValue());");
+        writer.WriteLine("        }");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInDelete){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //delete
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 删除");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 删除的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<Integer> delete"+partOfModelNameInMethodName+"("+parameterSignature+"){");
+        writer.WriteLine("        ResultModel<Integer> resultModel = new ResultModel<>();");
+        writer.WriteLine("        int affectRows = "+daoName+".delete"+partOfModelNameInMethodName+"("+callParameterName+");");
+        writer.WriteLine("        if (affectRows > 0 && "+callParameterName+".getId() != null) {");
+        writer.WriteLine("            resultModel.setSucceed("+callParameterName+".getId().intValue());");
+        writer.WriteLine("        }");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInSelect){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //select for Model
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个实体");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<"+modelName+"> queryModelFor"+partOfModelNameInMethodName+"("+parameterSignature+"){");
+        writer.WriteLine("        ResultModel<"+modelName+"> resultModel = new ResultModel<>();");
+        writer.WriteLine("        resultModel.setSucceed("+daoName+".selectModelFor"+partOfModelNameInMethodName+"("+callParameterName+"));");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        //select for List
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个列表");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体列表");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<List<"+modelName+">> queryListFor"+partOfModelNameInMethodName+"("+parameterSignature+"){");
+        writer.WriteLine("        ResultModel<List<"+modelName+">> resultModel = new ResultModel<>();");
+        writer.WriteLine("        resultModel.setSucceed("+daoName+".selectListFor"+partOfModelNameInMethodName+"("+callParameterName+"));");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        //select for Count
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询记录数量");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 记录数量");
+        writer.WriteLine("     */");
+        writer.WriteLine("    @Override");
+        writer.WriteLine("    public ResultModel<Integer> queryCountFor"+partOfModelNameInMethodName+"("+parameterSignature+"){");
+        writer.WriteLine("        ResultModel<Integer> resultModel = new ResultModel<>();");
+        writer.WriteLine("        resultModel.setSucceed("+daoName+".selectCountFor"+partOfModelNameInMethodName+"("+callParameterName+"));");
+        writer.WriteLine("        return resultModel;");
+        writer.WriteLine("    }");
+        
+        
+        writer.WriteLine("}");
+        
+        
+    }
+    
+	
+    this.Progress.Value = this.Progress.MaximumValue;
+    
+    base.Render(writer);
+}
+
+private string ToFirstCharCase(string name,bool firstCharLowerCase){
+    return (firstCharLowerCase?name.Substring(0,1).ToLower():name.Substring(0,1).ToUpper())
+            +(name.Length>1?name.Substring(1):"");
+}
+
+private string GetPropertyName(string dbColumnName){
+    
+    StringBuilder sb = new StringBuilder();
+    string[] dbColumnPartNames = dbColumnName.Split('_');
+    for(int i=0;i<dbColumnPartNames.Length;i++){
+        sb.Append(ToFirstCharCase(dbColumnPartNames[i],false));
+    }
+    return ToFirstCharCase(sb.ToString(),true); 
+}
+
+private string GetLanguageTypeName(string dataType){
+    return getJavaType(dataType);
+}
+
+private string getJavaType(string dataType){
+    if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int".Equals(dataType)){
+        return "Integer";
+    }
+    else if("DateTime".Equals(dataType)){
+        return "Date";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    else if("Int64".Equals(dataType)){
+        return "Long";
+    }
+    return "String";
+}
+
+</script>

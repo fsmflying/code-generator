@@ -18,6 +18,10 @@
 
 <%@ Property Name="DatabaseType" Type="System.String" Category="3. Model" Default="mysql" Description="mysql,oracle,sqlserver"%>
 <%@ Property Name="ContainsJSONAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInSelect" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInInsert" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInUpdate" Type="System.Boolean" Default="False" Category="3. Model"%>
+<%@ Property Name="UsingMapInDelete" Type="System.Boolean" Default="False" Category="3. Model"%>
 <%@ Property Name="ContainsMapAbout" Type="System.Boolean" Default="False" Category="3. Model"%>
 <%@ Property Name="IsLogicalDelete" Type="System.Boolean" Default="True" Category="3. Model"%>
 <%@ Property Name="ContainsNameInMethod" Type="System.Boolean" Default="True" Category="3. Model"%>
@@ -72,7 +76,19 @@ public override void Render(TextWriter writer)
             partOfModelNameInMethodName = modelName.Replace("Model","");
         }
         
+        string pkColumnName = "";
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                pkColumnName = this.SourceDatabase.Database.Tables[i].Columns[j].Name;
+            }
+        }
+        string pkPropertyName = GetPropertyName(pkColumnName);
         
+        string modelFullName = this.BasePackageName+".model."+modelName;
+        
+        
+        
+        // mappp start =======================================================================================
         writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\" ?>");
         writer.WriteLine("<!DOCTYPE mapper");
         writer.WriteLine("        PUBLIC \"-//mybatis.org//DTD Mapper 3.0//EN\"");
@@ -80,8 +96,16 @@ public override void Render(TextWriter writer)
         writer.WriteLine("<mapper namespace=\""+this.BasePackageName+".dao.I"+modelName.Replace("Model","")+"DAO\">");
         writer.WriteLine("");
         
+        string parameterType=modelFullName;
+        string resultType="int";
+        string resultMapName=ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap";
+        
         //insert
-        writer.WriteLine("    <insert id=\"insert" + partOfModelNameInMethodName + "\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" keyProperty=\"id\" useGeneratedKeys=\"true\">");
+        
+        if(this.UsingMapInInsert){
+            parameterType="map";
+        }
+        writer.WriteLine("    <insert id=\"insert" + partOfModelNameInMethodName + "\" parameterType=\""+parameterType+"\" keyProperty=\"id\" useGeneratedKeys=\"true\">");
         StringBuilder sb = new StringBuilder();
         StringBuilder sbp = new StringBuilder();
         for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
@@ -102,8 +126,12 @@ public override void Render(TextWriter writer)
         writer.WriteLine("    </insert>");
         
         //update
+        //selectListFor
+        if(this.UsingMapInUpdate){
+            parameterType="map";
+        }
         writer.WriteLine();
-        writer.WriteLine("    <update id=\"update" + partOfModelNameInMethodName + "\" parameterType=\""+this.BasePackageName+".model."+modelName+"\">");
+        writer.WriteLine("    <update id=\"update" + partOfModelNameInMethodName + "\" parameterType=\""+parameterType+"\">");
         writer.WriteLine("      UPDATE "+this.SourceDatabase.Database.Tables[i].Name);
         writer.WriteLine("      <set> ");
         for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
@@ -133,8 +161,12 @@ public override void Render(TextWriter writer)
         writer.WriteLine("    </update>");
         
         //delete
+        //selectListFor
+        if(this.UsingMapInDelete){
+            parameterType="map";
+        }
         writer.WriteLine();
-        writer.WriteLine("    <delete id=\"delete" + partOfModelNameInMethodName +"\" parameterType=\""+this.BasePackageName+".model."+modelName+"\">");
+        writer.WriteLine("    <delete id=\"delete" + partOfModelNameInMethodName +"\" parameterType=\""+parameterType+"\">");
         if(this.IsLogicalDelete){
             writer.WriteLine("        UPDATE "+this.SourceDatabase.Database.Tables[i].Name);
             writer.WriteLine("        <set> ");
@@ -172,9 +204,12 @@ public override void Render(TextWriter writer)
         writer.WriteLine("        </where>");
         writer.WriteLine("    </delete>");
         
-        //selectForList
+        //selectListFor
+        if(this.UsingMapInSelect){
+            parameterType="map";
+        }
         writer.WriteLine();
-        writer.WriteLine("    <select id=\"select" + partOfModelNameInMethodName +"ForList\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" resultMap=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\">");
+        writer.WriteLine("    <select id=\"selectListFor" + partOfModelNameInMethodName +"\" parameterType=\""+parameterType+"\" resultMap=\""+resultMapName+"\">");
         writer.Write("        SELECT ");
         if("sqlserver".Equals(this.DatabaseType)){
             writer.Write(" top #{pageSize}");   
@@ -210,15 +245,37 @@ public override void Render(TextWriter writer)
         writer.WriteLine("        </where>");
         writer.WriteLine("    </select>");
         
-        //selectForModel
+        //selectModelFor
         writer.WriteLine();
-        writer.WriteLine("    <select id=\"select" + partOfModelNameInMethodName +"ForModel\" parameterType=\""+this.BasePackageName+".model."+modelName+"\" resultMap=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\">");
+        writer.WriteLine("    <select id=\"selectModelFor" + partOfModelNameInMethodName +"\" parameterType=\""+parameterType+"\" resultMap=\""+resultMapName+"\">");
         writer.WriteLine("        SELECT <include refid=\"" + ToFirstCharCase(modelName.Replace("Model",""),true) + "Columns\"/>");
         writer.WriteLine("        FROM "+this.SourceDatabase.Database.Tables[i].Name);
         writer.WriteLine("        <where>");
         writer.WriteLine("            <choose>");
         for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
             if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
+                continue;
+            }
+            writer.WriteLine("                <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
+            writer.WriteLine("                    AND "+this.SourceDatabase.Database.Tables[i].Columns[j].Name+" = #{"+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"},");
+            writer.WriteLine("                </when> ");
+        }
+        writer.WriteLine("                <otherwise> ");
+        writer.WriteLine("                    AND 1 != 1");
+        writer.WriteLine("                </otherwise> ");
+        writer.WriteLine("            </choose>");
+        writer.WriteLine("        </where>");
+        writer.WriteLine("    </select>");
+        
+        //selectCountFor
+        writer.WriteLine();
+        writer.WriteLine("    <select id=\"selectCountFor" + partOfModelNameInMethodName +"\" parameterType=\""+parameterType+"\" resultType=\"int\">");
+        writer.WriteLine("        SELECT count(1) xcount");
+        writer.WriteLine("        FROM "+this.SourceDatabase.Database.Tables[i].Name);
+        writer.WriteLine("        <where>");
+        writer.WriteLine("            <choose>");
+        for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
+            if(this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
                 continue;
             }
             writer.WriteLine("                <when test=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+" != null \"> ");
@@ -247,7 +304,7 @@ public override void Render(TextWriter writer)
         //resultMap
         sb.Clear();
         writer.WriteLine();
-        writer.WriteLine("    <resultMap id=\""+ToFirstCharCase(modelName.Replace("Model",""),true)+"ResultMap\" type=\""+this.BasePackageName+".model."+modelName+"\">");
+        writer.WriteLine("    <resultMap id=\""+resultMapName+"\" type=\""+this.BasePackageName+".model."+modelName+"\">");
         for(int j=0;j<this.SourceDatabase.Database.Tables[i].Columns.Count;j++){
             if(!this.SourceDatabase.Database.Tables[i].Columns[j].IsPrimaryKeyMember){
                 writer.WriteLine("         <result column=\""+this.SourceDatabase.Database.Tables[i].Columns[j].Name+"\" property=\""+GetPropertyName(this.SourceDatabase.Database.Tables[i].Columns[j].Name)+"\"/>");
@@ -260,6 +317,100 @@ public override void Render(TextWriter writer)
         
         writer.WriteLine();
         writer.WriteLine("</mapper>");
+        
+        // mappp end =========================================================================================
+        
+        
+        string parameterSignature = modelName+" "+GetPropertyName(modelName);
+        
+        writer.WriteLine("package "+this.BasePackageName+".dao;");
+        
+        writer.WriteLine("import "+this.BasePackageName+".model."+modelName+";");
+        
+        writer.WriteLine();
+        writer.WriteLine("/**");
+        writer.WriteLine(" * "+this.SourceDatabase.Database.Tables[i].Description);
+        writer.WriteLine(" * @author "+this.AuthorName);
+        writer.WriteLine(" * @date "+DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
+        writer.WriteLine(" * @version 1.0.0");
+        writer.WriteLine(" * @since 1.0.0");
+        writer.WriteLine(" */");
+        writer.WriteLine("@Repository");
+        writer.WriteLine("public interface I"+partOfModelNameInMethodName+"DAO {");
+        
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInInsert){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 插入");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 插入的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    int insert"+partOfModelNameInMethodName+"(" + parameterSignature + ");");
+        
+        //update
+        //insert
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInUpdate){
+            parameterSignature = "Map<String,Object> map";
+        }
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 更新");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 更新的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    int update"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInDelete){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //delete
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 删除");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 删除的行数");
+        writer.WriteLine("     */");
+        writer.WriteLine("    int delete"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        parameterSignature = modelName+" "+GetPropertyName(modelName);
+        if(this.UsingMapInSelect){
+            parameterSignature = "Map<String,Object> map";
+        }
+        //select for Model
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个实体");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     */");
+        writer.WriteLine("    "+modelName+" selectModelFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        //select for List
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询一个列表");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return ["+this.SourceDatabase.Database.Tables[i].Description+"]实体列表");
+        writer.WriteLine("     */");
+        writer.WriteLine("    List<"+modelName+"> selectListFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        //select for Count
+        writer.WriteLine("    /**");
+        writer.WriteLine("     * 查询记录数量");
+        writer.WriteLine("     * ");
+        writer.WriteLine("     * @param "+GetPropertyName(modelName)+" ["+this.SourceDatabase.Database.Tables[i].Description+"]实体");
+        writer.WriteLine("     * @return 记录数量");
+        writer.WriteLine("     */");
+        writer.WriteLine("    int selectCountFor"+partOfModelNameInMethodName+"("+parameterSignature+");");
+        
+        
+        writer.WriteLine("}");
         
         
     }
